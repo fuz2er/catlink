@@ -1,28 +1,28 @@
 """The component."""
-import logging
 import base64
-import hashlib
 import datetime
+import hashlib
+import logging
 import time
-import voluptuous as vol
-
-from homeassistant.core import HomeAssistant
-from homeassistant.const import CONF_TOKEN,CONF_DEVICES,STATE_ON,STATE_OFF,CONF_PASSWORD,CONF_SCAN_INTERVAL,CONF_LANGUAGE
-from homeassistant.components import persistent_notification
-from homeassistant.helpers import aiohttp_client
-from homeassistant.helpers.storage import Store
-from homeassistant.helpers.entity_component import EntityComponent
-from homeassistant.helpers.update_coordinator import (
-    CoordinatorEntity,
-    DataUpdateCoordinator,
-)
-import homeassistant.helpers.config_validation as cv
-
 from asyncio import TimeoutError
+
+import homeassistant.helpers.config_validation as cv
+import voluptuous as vol
 from aiohttp import ClientConnectorError
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import padding
+from homeassistant.components import persistent_notification
+from homeassistant.const import CONF_TOKEN, CONF_DEVICES, STATE_ON, STATE_OFF, CONF_PASSWORD, CONF_SCAN_INTERVAL, \
+    CONF_LANGUAGE
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import aiohttp_client
+from homeassistant.helpers.entity_component import EntityComponent
+from homeassistant.helpers.storage import Store
+from homeassistant.helpers.update_coordinator import (
+    CoordinatorEntity,
+    DataUpdateCoordinator,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -297,6 +297,8 @@ class DevicesCoordinator(DataUpdateCoordinator):
                 typ = dat.get('deviceType')
                 if typ in ['SCOOPER']:
                     dvc = ScooperDevice(dat, self)
+                elif typ in ['FEEDER']:
+                    dvc = FeederDevice(dat, self)
                 else:
                     dvc = Device(dat, self)
                 self.hass.data[DOMAIN][CONF_DEVICES][did] = dvc
@@ -392,6 +394,7 @@ class Device:
             _LOGGER.error('Got device detail for %s failed: %s', self.name, exc)
         if not rdt:
             _LOGGER.warning('Got device detail for %s failed: %s', self.name, rsp)
+        _LOGGER.info('Update device detail: %s', rsp)
         self.detail = rdt
         self._handle_listeners()
         return rdt
@@ -599,6 +602,7 @@ class ScooperDevice(Device):
             _LOGGER.error('Got device logs for %s failed: %s', self.name, exc)
         if not rdt:
             _LOGGER.warning('Got device logs for %s failed: %s', self.name, rsp)
+        _LOGGER.info('Update device logs: %s', rsp)
         self.logs = rdt
         self._handle_listeners()
         return rdt
@@ -611,6 +615,195 @@ class ScooperDevice(Device):
                 'icon': 'mdi:message',
                 'state_attrs': self.last_log_attrs,
             },
+        }
+
+
+class FeederDevice(Device):
+    data: dict
+
+    def __init__(self, dat: dict, coordinator: DevicesCoordinator):
+        self.coordinator = coordinator
+        self.account = coordinator.account
+        self.listeners = {}
+        self.update_data(dat)
+        self.detail = {}
+
+    logs: list
+    coordinator_logs = None
+
+    async def async_init(self):
+        await self.update_device_detail()
+        self.logs = []
+        self.coordinator_logs = DataUpdateCoordinator(
+            self.account.hass,
+            _LOGGER,
+            name=f'{DOMAIN}-{self.id}-logs',
+            update_method=self.update_logs,
+            update_interval=datetime.timedelta(minutes=1),
+        )
+        await self.coordinator_logs.async_config_entry_first_refresh()
+
+    def update_data(self, dat: dict):
+        self.data = dat
+        self._handle_listeners()
+        _LOGGER.info('Update device data: %s', dat)
+
+    def _handle_listeners(self):
+        for fun in self.listeners.values():
+            fun()
+
+    @property
+    def id(self):
+        return self.data.get('id')
+
+    @property
+    def mac(self):
+        return self.data.get('mac', '')
+
+    @property
+    def model(self):
+        return self.data.get('model', '')
+
+    @property
+    def type(self):
+        return self.data.get('deviceType', '')
+
+    @property
+    def name(self):
+        return self.data.get('deviceName', '')
+
+    @property
+    def error(self):
+        return self.detail.get('currentMessage') or self.data.get('currentErrorMessage', '')
+
+    async def update_device_detail(self):
+        api = 'token/device/feeder/detail'
+        pms = {
+            'deviceId': self.id,
+        }
+        rsp = None
+        try:
+            rsp = await self.account.request(api, pms)
+            rdt = rsp.get('data', {}).get('deviceInfo') or {}
+        except (TypeError, ValueError) as exc:
+            rdt = {}
+            _LOGGER.error('Got device detail for %s failed: %s', self.name, exc)
+        if not rdt:
+            _LOGGER.warning('Got device detail for %s failed: %s', self.name, rsp)
+        _LOGGER.info('Update device detail: %s', rsp)
+        self.detail = rdt
+        self._handle_listeners()
+        return rdt
+
+    @property
+    def state(self):
+        return self.detail.get('foodOutStatus')
+
+    def state_attrs(self):
+        return {
+            'work_status': self.detail.get('foodOutStatus'),
+            'auto_fill_status': self.detail.get('autoFillStatus'),
+            'indicator_light_status': self.detail.get('indicatorLightStatus'),
+            'breath_light_status': self.detail.get('breathLightStatus'),
+            'power_supply_status': self.detail.get('powerSupplyStatus'),
+            'weight': self.detail.get('weight'),
+            'key_lock_status': self.detail.get('keyLockStatus'),
+        }
+
+    def error_attrs(self):
+        return {
+            'weight': self.detail.get('weight'),
+        }
+
+    @property
+    def _last_log(self):
+        log = {}
+        if self.logs:
+            log = self.logs[0] or {}
+        return log
+
+    @property
+    def last_log(self):
+        log = self._last_log
+        if not log:
+            return None
+        return f"{log.get('time')} {log.get('event')}"
+
+    def last_log_attrs(self):
+        log = self._last_log
+        return {
+            **log,
+            'logs': self.logs,
+        }
+
+    async def update_logs(self):
+        api = 'token/device/feeder/stats/log/top5'
+        pms = {
+            'deviceId': self.id,
+        }
+        rsp = None
+        try:
+            rsp = await self.account.request(api, pms)
+            rdt = rsp.get('data', {}).get('feederLogTop5') or []
+        except (TypeError, ValueError) as exc:
+            rdt = {}
+            _LOGGER.error('Got device logs for %s failed: %s', self.name, exc)
+        if not rdt:
+            _LOGGER.warning('Got device logs for %s failed: %s', self.name, rsp)
+        _LOGGER.info('Update device logs: %s', rsp)
+        self.logs = rdt
+        self._handle_listeners()
+        return rdt
+
+    async def food_out(self):
+        api = 'token/device/feeder/foodOut'
+        pms = {
+            'footOutNum': 5,
+            'deviceId': self.id,
+        }
+        rdt = await self.account.request(api, pms, 'POST')
+        eno = rdt.get('returnCode', 0)
+        if eno:
+            _LOGGER.error('Food out failed: %s', [rdt, pms])
+            return False
+        await self.update_device_detail()
+        _LOGGER.info('Food out: %s', [rdt, pms])
+        return rdt
+
+    @property
+    def hass_sensor(self):
+        return {
+            'state': {
+                'icon': 'mdi:information',
+                'state_attrs': self.state_attrs,
+            },
+            'error': {
+                'icon': 'mdi:alert-circle',
+                'state_attrs': self.error_attrs,
+            },
+            'last_log': {
+                'icon': 'mdi:message',
+                'state_attrs': self.last_log_attrs,
+            },
+        }
+
+    @property
+    def hass_binary_sensor(self):
+        return {
+        }
+
+    @property
+    def hass_switch(self):
+        return {
+            'feed': {
+                'icon': 'mdi:food',
+                'async_turn_on': self.food_out,
+            }
+        }
+
+    @property
+    def hass_select(self):
+        return {
         }
 
 

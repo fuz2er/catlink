@@ -9,7 +9,7 @@
 
 ```shell
 # Auto install via terminal shell
-wget -q -O - https://cdn.jsdelivr.net/gh/al-one/hass-xiaomi-miot/install.sh | DOMAIN=catlink REPO_PATH=hasscc/catlink ARCHIVE_TAG=main bash -
+wget -q -O - https://cdn.jsdelivr.net/gh/al-one/hass-xiaomi-miot/install.sh | DOMAIN=catlink REPO_PATH=fuz2er/catlink2 ARCHIVE_TAG=main bash -
 ```
 
 
