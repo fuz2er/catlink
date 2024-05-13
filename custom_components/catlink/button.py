@@ -5,7 +5,6 @@ from homeassistant.components.button import (
     ButtonEntity,
     DOMAIN as ENTITY_DOMAIN,
 )
-from homeassistant.core import HomeAssistant
 
 from . import (
     DOMAIN,
@@ -19,14 +18,8 @@ DATA_KEY = f'{ENTITY_DOMAIN}.{DOMAIN}'
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
-    cfg = {**config_entry.data, **config_entry.options}
-    await async_setup_platform(hass, cfg, async_setup_platform, async_add_entities)
-
-
-async def async_setup_platform(hass: HomeAssistant, config, async_add_entities, discovery_info=None):
     hass.data[DOMAIN]['add_entities'][ENTITY_DOMAIN] = async_add_entities
     await async_setup_accounts(hass, ENTITY_DOMAIN)
-
 
 class CatlinkButtonEntity(CatlinkEntity, ButtonEntity):
 

@@ -6,8 +6,6 @@ import logging
 import time
 from asyncio import TimeoutError
 
-import homeassistant.helpers.config_validation as cv
-import voluptuous as vol
 from aiohttp import ClientConnectorError
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
@@ -29,11 +27,13 @@ from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.components.switch import (
     DOMAIN as SWITCH_DOMAIN,
 )
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_TOKEN, CONF_DEVICES, STATE_ON, STATE_OFF, CONF_PASSWORD, CONF_SCAN_INTERVAL, \
     CONF_LANGUAGE, UnitOfTemperature, UnitOfMass
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import aiohttp_client
-from homeassistant.helpers.entity_component import EntityComponent
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
@@ -42,31 +42,8 @@ from homeassistant.helpers.update_coordinator import (
 
 _LOGGER = logging.getLogger(__name__)
 
-DOMAIN = 'catlink'
-SCAN_INTERVAL = datetime.timedelta(minutes=1)
-
-CONF_ACCOUNTS = 'accounts'
-CONF_API_BASE = 'api_base'
-CONF_USER_ID = 'uid'
-CONF_PHONE = 'phone'
-CONF_PHONE_IAC = 'phone_iac'
-CONF_LANGUAGE = 'language'
-
-DEFAULT_API_BASE = 'https://app.catlinks.cn/api/'
-
-SIGN_KEY = '00109190907746a7ad0e2139b6d09ce47551770157fe4ac5922f3a5454c82712'
-RSA_PUBLIC_KEY = 'MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCCA9I+iEl2AI8dnhdwwxPxHVK8iNAt6aTq6UhNsLsguWS5qtbLnuGz2RQdfNS' \
-                 'aKSU2B6D/vE2gb1fM6f1A5cKndqF/riWGWn1EfL3FFQZduOTxoA0RTQzhrTa5LHcJ/an/NuHUwShwIOij0Mf4g8faTe4FT7/HdA' \
-                 'oK7uW0cG9mZwIDAQAB'
-RSA_PRIVATE_KEY = 'MIICdgIBADANBgkqhkiG9w0BAQEFAASCAmAwggJcAgEAAoGBAIID0j6ISXYAjx2eF3DDE/EdUryI0C3ppOrpSE2wuyC5ZLmq1s' \
-                  'ue4bPZFB181JopJTYHoP+8TaBvV8zp/UDlwqd2oX+uJYZafUR8vcUVBl245PGgDRFNDOGtNrksdwn9qf824dTBKHAg6KPQx/iD' \
-                  'x9pN7gVPv8d0Cgru5bRwb2ZnAgMBAAECgYAccTuQRH5Vmz+zyf70wyhcqf6Mkh2Avck/PrN7k3sMaKJZX79HokVb89RLsyBLbU' \
-                  '7fqAGXkJkmzNTXViT6Colvi1T7QQWhkvPsPEsu/89s5yo0ME2+rtvBA/niy1iQs6UYTzZivSKosLVgCTmcOYbp5eUCP8IPtKy/' \
-                  '3vzkIBMZqQJBALn0bAgCeXwctYqznCboNHAX7kGk9HjX8VCOfaBh1WcAYWk7yKzYZemMKXMw5ifeopT0uUpLEk5mlN4nxwBsTp' \
-                  'sCQQCy/SHTlQyt/yauVyrJipZflUK/hq6hIZFIu1Mc40L6BDNAboi42P9suznXbV7DD+LNpxFnkYlee8sitY0R474lAkEAsjBV' \
-                  'lRdJ8nRQQij6aQ35sbA8zwqSeXnz842XNCiLpbfnoD95fKeggLuevJMO+QWOJc6b/2UQlbAW1wqm1vDyIQJAUhYVNVvd/M5Phx' \
-                  'Ui4ltUq3Fgs0WpQOyMHLcMXus7BD544svOmDesrMkQtePK2dqnQXmlWcI9Jb/QYZKxp8qyoQJAP2kK4dc3AA4BDVQUMHYiSnGp' \
-                  'I0eGQrD/W4rBeoCX8sJDCH49lMsec52TFI2Gn8tTKOCqqgGvRSKDJ005HlnmKw=='
+from .const import DOMAIN, CONF_API_BASE, CONF_PHONE, CONF_PHONE_IAC, CONF_PASSWORD, CONF_LANGUAGE, CONF_SCAN_INTERVAL, \
+    DEFAULT_API_BASE, SCAN_INTERVAL, CONF_ACCOUNTS, SIGN_KEY, RSA_PUBLIC_KEY, RSA_PRIVATE_KEY
 
 SUPPORTED_DOMAINS = [
     SENSOR_DOMAIN,
@@ -76,63 +53,59 @@ SUPPORTED_DOMAINS = [
     BUTTON_DOMAIN,
 ]
 
-ACCOUNT_SCHEMA = vol.Schema(
-    {
-        vol.Optional(CONF_API_BASE, default=DEFAULT_API_BASE): cv.string,
-        vol.Optional(CONF_PHONE): cv.string,
-        vol.Optional(CONF_PHONE_IAC, default='86'): cv.string,
-        vol.Optional(CONF_PASSWORD): cv.string,
-        vol.Optional(CONF_LANGUAGE, default='zh_CN'): cv.string,
-        vol.Optional(CONF_SCAN_INTERVAL, default=SCAN_INTERVAL): cv.time_period,
-    },
-    extra=vol.ALLOW_EXTRA,
-)
 
-CONFIG_SCHEMA = vol.Schema(
-    {
-        DOMAIN: ACCOUNT_SCHEMA.extend(
-            {
-                vol.Optional(CONF_ACCOUNTS): vol.All(cv.ensure_list, [ACCOUNT_SCHEMA]),
-            },
-        ),
-    },
-    extra=vol.ALLOW_EXTRA,
-)
-
-
-async def async_setup(hass: HomeAssistant, hass_config: dict):
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up Catlink from a config entry."""
     hass.data.setdefault(DOMAIN, {})
-    config = hass_config.get(DOMAIN) or {}
-    hass.data[DOMAIN]['config'] = config
-    hass.data[DOMAIN].setdefault(CONF_ACCOUNTS, {})
-    hass.data[DOMAIN].setdefault(CONF_DEVICES, {})
-    hass.data[DOMAIN].setdefault('coordinators', {})
-    hass.data[DOMAIN].setdefault('add_entities', {})
+    # Get the session and create your API client here
+    acc = Account(hass, dict(entry.data))
+    coordinator = DevicesCoordinator(acc)
 
-    component = EntityComponent(_LOGGER, DOMAIN, hass, SCAN_INTERVAL)
-    hass.data[DOMAIN]['component'] = component
-    await component.async_setup(config)
+    # Fetch initial data
+    await acc.async_check_auth()
+    await coordinator.async_config_entry_first_refresh()
 
-    als = config.get(CONF_ACCOUNTS) or []
-    if CONF_PASSWORD in config:
-        acc = {**config}
-        acc.pop(CONF_ACCOUNTS, None)
-        als.append(acc)
-    for cfg in als:
-        if not cfg.get(CONF_PASSWORD) and not cfg.get(CONF_TOKEN):
-            continue
-        acc = Account(hass, cfg)
-        coordinator = DevicesCoordinator(acc)
-        await acc.async_check_auth()
-        await coordinator.async_config_entry_first_refresh()
-        hass.data[DOMAIN][CONF_ACCOUNTS][acc.uid] = acc
-        hass.data[DOMAIN]['coordinators'][coordinator.name] = coordinator
+    # Store the coordinator
+    hass.data[DOMAIN][CONF_ACCOUNTS][acc.uid] = acc
+    hass.data[DOMAIN]['coordinators'][entry.entry_id] = coordinator
+
+    # Register the device in the device registry
+    for dvc in coordinator.device_list:
+        device_registry = dr.async_get(hass)
+        device_registry.async_get_or_create(
+            config_entry_id=entry.entry_id,
+            identifiers={(DOMAIN, dvc.id)},
+            name=dvc.name,
+            manufacturer="CatLink",
+            model=dvc.model,
+            sw_version=dvc.firmwareVersion,
+        )
+        _LOGGER.debug(f"Registering device: {dvc.id}, {dvc.name}")
 
     for platform in SUPPORTED_DOMAINS:
         hass.async_create_task(
-            hass.helpers.discovery.async_load_platform(platform, DOMAIN, {}, config)
+            hass.config_entries.async_forward_entry_setup(entry, platform)
         )
 
+    return True
+
+
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Unload a config entry."""
+    coordinator = hass.data[DOMAIN].pop(entry.entry_id)
+    for platform in SUPPORTED_DOMAINS:
+        await hass.config_entries.async_forward_entry_unload(entry, platform)
+
+    return True
+
+
+async def async_setup(hass: HomeAssistant, hass_config: dict):
+    hass.data.setdefault(DOMAIN, {
+        CONF_ACCOUNTS: {},
+        CONF_DEVICES: {},
+        'coordinators': {},
+        'add_entities': {},
+    })
     return True
 
 
@@ -149,7 +122,7 @@ class Account:
         self.http = aiohttp_client.async_create_clientsession(hass, auto_cleanup=False)
 
     def get_config(self, key, default=None):
-        return self._config.get(key, self.hass.data[DOMAIN]['config'].get(key, default))
+        return self._config.get(key, default)
 
     @property
     def phone(self):
@@ -302,6 +275,7 @@ class DevicesCoordinator(DataUpdateCoordinator):
 
     async def _async_update_data(self):
         dls = await self.account.get_devices()
+        self.device_list = []
         for dat in dls:
             did = dat.get('id')
             if not did:
@@ -322,6 +296,7 @@ class DevicesCoordinator(DataUpdateCoordinator):
             await dvc.async_init()
             for d in SUPPORTED_DOMAINS:
                 await self.update_hass_entities(d, dvc)
+            self.device_list.append(dvc)
         return self.hass.data[DOMAIN][CONF_DEVICES]
 
     async def update_hass_entities(self, domain, dvc):
@@ -385,7 +360,7 @@ class Device:
     def update_data(self, dat: dict):
         self.data = dat
         self._handle_listeners()
-        _LOGGER.info('Update device data: %s', dat)
+        _LOGGER.debug('Update device data: %s', dat)
 
     def _handle_listeners(self):
         for fun in self.listeners.values():
@@ -411,30 +386,14 @@ class Device:
     def name(self):
         return self.data.get('deviceName', '')
 
+    @property
+    def firmwareVersion(self):
+        return self.detail.get('firmwareVersion', '')
+
 
 class FeederDevice(Device):
     logs: list
     coordinator_logs = None
-
-    @property
-    def id(self):
-        return self.data.get('id')
-
-    @property
-    def mac(self):
-        return self.data.get('mac', '')
-
-    @property
-    def model(self):
-        return self.data.get('model', '')
-
-    @property
-    def type(self):
-        return self.data.get('deviceType', '')
-
-    @property
-    def name(self):
-        return self.data.get('deviceName', '')
 
     @property
     def weight(self):
@@ -464,7 +423,7 @@ class FeederDevice(Device):
             _LOGGER.error('Got device detail for %s failed: %s', self.name, exc)
         if not rdt:
             _LOGGER.warning('Got device detail for %s failed: %s', self.name, rsp)
-        _LOGGER.info('Update device detail: %s', rsp)
+        _LOGGER.debug('Update device detail: %s', rsp)
         self.detail = rdt
         self._handle_listeners()
         return rdt
@@ -515,10 +474,10 @@ class FeederDevice(Device):
             rdt = rsp.get('data', {}).get('feederLogTop5') or []
         except (TypeError, ValueError) as exc:
             rdt = {}
-            _LOGGER.error('Got device logs for %s failed: %s', self.name, exc)
+            _LOGGER.warning('Got device logs for %s failed: %s', self.name, exc)
         if not rdt:
-            _LOGGER.warning('Got device logs for %s failed: %s', self.name, rsp)
-        _LOGGER.info('Update device logs: %s', rsp)
+            _LOGGER.debug('Got device logs for %s failed: %s', self.name, rsp)
+        _LOGGER.debug('Update device logs: %s', rsp)
         self.logs = rdt
         self._handle_listeners()
         return rdt
@@ -590,7 +549,7 @@ class ScooperDevice(Device):
             _LOGGER.error('Got device detail for %s failed: %s', self.name, exc)
         if not rdt:
             _LOGGER.warning('Got device detail for %s failed: %s', self.name, rsp)
-        _LOGGER.info('Update device detail: %s', rsp)
+        _LOGGER.debug('Update device detail: %s', rsp)
         self.detail = rdt
         self._handle_listeners()
         return rdt
@@ -692,10 +651,10 @@ class ScooperDevice(Device):
             rdt = rsp.get('data', {}).get('scooperLogTop5') or []
         except (TypeError, ValueError) as exc:
             rdt = {}
-            _LOGGER.error('Got device logs for %s failed: %s', self.name, exc)
+            _LOGGER.warning('Got device logs for %s failed: %s', self.name, exc)
         if not rdt:
-            _LOGGER.warning('Got device logs for %s failed: %s', self.name, rsp)
-        _LOGGER.info('Update device logs: %s', rsp)
+            _LOGGER.debug('Got device logs for %s failed: %s', self.name, rsp)
+        _LOGGER.debug('Update device logs: %s', rsp)
         self.logs = rdt
         self._handle_listeners()
         return rdt
@@ -802,8 +761,10 @@ class CatlinkEntity(CoordinatorEntity):
         self._entity_key = entity_key
         self._device = device
         self._device_id = device.id
+        self._device_name = device.name
+
         self._option = option or {}
-        self._device_name = f'{device.type}_{device.mac}'
+
         self._unique_id = f'{self._device_id}-{entity_key}'
         mac = device.mac[-4:] if device.mac else device.id
         self.entity_id = f'{DOMAIN}.{device.type.lower()}_{mac}_{entity_key}'
@@ -813,14 +774,15 @@ class CatlinkEntity(CoordinatorEntity):
         return f'{self._device.name} {self._entity_key}'.strip()
 
     @property
-    def device_info(self):
-        return {
-            'identifiers': {(DOMAIN, self._device_id)},
-            'name': self._device.name,
-            'model': self._device.model,
-            'manufacturer': 'CatLink',
-            'sw_version': self._device.detail.get('firmwareVersion'),
-        }
+    def device_info(self) -> DeviceInfo:
+        """Return the device info."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._device_id)},
+            name=self._device.name,
+            model=self._device.model,
+            manufacturer='CatLink',
+            sw_version=self._device.firmwareVersion,
+        )
 
     @property
     def unique_id(self):

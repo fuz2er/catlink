@@ -1,0 +1,17 @@
+{
+  "config": {
+    "flow_title": "CatLink",
+    "step": {
+      "user": {
+        "title": "CatLink Account",
+        "data": {
+          "api_base": "API Base",
+          "phone": "Phone Number",
+          "phone_iac": "Phone IAC",
+          "password": "Password",
+          "language": "Language"
+        }
+      }
+    }
+  }
+}
