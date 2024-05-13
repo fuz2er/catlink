@@ -36,7 +36,7 @@ class CatlinkSwitchEntity(CatlinkBinaryEntity, SwitchEntity):
         ret = False
         fun = self._option.get('async_turn_on' if on else 'async_turn_off')
         if callable(fun):
-            kwargs['entity'] = self
+            # kwargs['entity'] = self
             ret = await fun(**kwargs)
         if ret:
             self._attr_is_on = not not on
