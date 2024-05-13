@@ -13,7 +13,22 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 from homeassistant.components import persistent_notification
+from homeassistant.components.binary_sensor import (
+    DOMAIN as BINARY_SENSOR_DOMAIN,
+)
+from homeassistant.components.button import (
+    DOMAIN as BUTTON_DOMAIN,
+)
+from homeassistant.components.select import (
+    DOMAIN as SELECT_DOMAIN,
+)
+from homeassistant.components.sensor import (
+    DOMAIN as SENSOR_DOMAIN,
+)
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
+from homeassistant.components.switch import (
+    DOMAIN as SWITCH_DOMAIN,
+)
 from homeassistant.const import CONF_TOKEN, CONF_DEVICES, STATE_ON, STATE_OFF, CONF_PASSWORD, CONF_SCAN_INTERVAL, \
     CONF_LANGUAGE, UnitOfTemperature, UnitOfMass
 from homeassistant.core import HomeAssistant
@@ -54,10 +69,11 @@ RSA_PRIVATE_KEY = 'MIICdgIBADANBgkqhkiG9w0BAQEFAASCAmAwggJcAgEAAoGBAIID0j6ISXYAj
                   'I0eGQrD/W4rBeoCX8sJDCH49lMsec52TFI2Gn8tTKOCqqgGvRSKDJ005HlnmKw=='
 
 SUPPORTED_DOMAINS = [
-    'sensor',
-    'binary_sensor',
-    'switch',
-    'select',
+    SENSOR_DOMAIN,
+    BINARY_SENSOR_DOMAIN,
+    SWITCH_DOMAIN,
+    SELECT_DOMAIN,
+    BUTTON_DOMAIN,
 ]
 
 ACCOUNT_SCHEMA = vol.Schema(
@@ -313,6 +329,7 @@ class DevicesCoordinator(DataUpdateCoordinator):
         from .binary_sensor import CatlinkBinarySensorEntity
         from .switch import CatlinkSwitchEntity
         from .select import CatlinkSelectEntity
+        from .button import CatlinkButtonEntity
         hdk = f'hass_{domain}'
         add = self.hass.data[DOMAIN]['add_entities'].get(domain)
         if not add or not hasattr(dvc, hdk):
@@ -330,6 +347,8 @@ class DevicesCoordinator(DataUpdateCoordinator):
                 new = CatlinkSwitchEntity(k, dvc, cfg)
             elif domain == 'select':
                 new = CatlinkSelectEntity(k, dvc, cfg)
+            elif domain == 'button':
+                new = CatlinkButtonEntity(k, dvc, cfg)
             if new:
                 self._subs[key] = new
                 add([new])
@@ -347,6 +366,21 @@ class Device:
 
     async def async_init(self):
         await self.update_device_detail()
+        self.logs = []
+        self.coordinator_logs = DataUpdateCoordinator(
+            self.account.hass,
+            _LOGGER,
+            name=f'{DOMAIN}-{self.id}-logs',
+            update_method=self.update_logs,
+            update_interval=datetime.timedelta(minutes=1),
+        )
+        await self.coordinator_logs.async_config_entry_first_refresh()
+
+    async def update_device_detail(self):
+        pass
+
+    async def update_logs(self):
+        pass
 
     def update_data(self, dat: dict):
         self.data = dat
@@ -377,294 +411,10 @@ class Device:
     def name(self):
         return self.data.get('deviceName', '')
 
-    @property
-    def error(self):
-        return self.detail.get('currentMessage') or self.data.get('currentErrorMessage', '')
-
-    async def update_device_detail(self):
-        api = 'token/device/info'
-        pms = {
-            'deviceId': self.id,
-        }
-        rsp = None
-        try:
-            rsp = await self.account.request(api, pms)
-            rdt = rsp.get('data', {}).get('deviceInfo') or {}
-        except (TypeError, ValueError) as exc:
-            rdt = {}
-            _LOGGER.error('Got device detail for %s failed: %s', self.name, exc)
-        if not rdt:
-            _LOGGER.warning('Got device detail for %s failed: %s', self.name, rsp)
-        _LOGGER.info('Update device detail: %s', rsp)
-        self.detail = rdt
-        self._handle_listeners()
-        return rdt
-
-    @property
-    def state(self):
-        sta = self.detail.get('workStatus', '')
-        dic = {
-            '00': 'idle',
-            '01': 'running',
-            '02': 'need_reset',
-        }
-        return dic.get(f'{sta}'.strip(), sta)
-
-    def state_attrs(self):
-        return {
-            'work_status': self.detail.get('workStatus'),
-            'alarm_status': self.detail.get('alarmStatus'),
-            'atmosphere_status': self.detail.get('atmosphereStatus'),
-            'weight': self.detail.get('weight'),
-            'key_lock': self.detail.get('keyLock'),
-            'safe_time': self.detail.get('safeTime'),
-            'pave_second': self.detail.get('catLitterPaveSecond'),
-        }
-
-    def error_attrs(self):
-        return {
-            'weight': self.detail.get('weight'),
-        }
-
-    @property
-    def mode(self):
-        return self.modes.get(self.detail.get('workModel', ''))
-
-    @property
-    def modes(self):
-        return {}
-
-    def mode_attrs(self):
-        return {
-            'work_mode': self.detail.get('workModel'),
-        }
-
-    async def select_mode(self, mode, **kwargs):
-        api = 'token/device/changeMode'
-        mod = None
-        for k, v in self.modes.items():
-            if v == mode:
-                mod = k
-                break
-        if mod is None:
-            _LOGGER.warning('Select mode failed for %s in %s', mode, self.modes)
-            return False
-        pms = {
-            'workModel': mod,
-            'deviceId': self.id,
-        }
-        rdt = await self.account.request(api, pms, 'POST')
-        eno = rdt.get('returnCode', 0)
-        if eno:
-            _LOGGER.error('Select mode failed: %s', [rdt, pms])
-            return False
-        await self.update_device_detail()
-        _LOGGER.info('Select mode: %s', [rdt, pms])
-        return rdt
-
-    @property
-    def action(self):
-        return None
-
-    @property
-    def actions(self):
-        return {}
-
-    async def select_action(self, action, **kwargs):
-        api = 'token/device/actionCmd'
-        val = None
-        for k, v in self.actions.items():
-            if v == action:
-                val = k
-                break
-        if val is None:
-            _LOGGER.warning('Select action failed for %s in %s', action, self.actions)
-            return False
-        pms = {
-            'cmd': val,
-            'deviceId': self.id,
-        }
-        rdt = await self.account.request(api, pms, 'POST')
-        eno = rdt.get('returnCode', 0)
-        if eno:
-            _LOGGER.error('Select action failed: %s', [rdt, pms])
-            return False
-        await self.update_device_detail()
-        _LOGGER.info('Select action: %s', [rdt, pms])
-        return rdt
-
-    @property
-    def hass_binary_sensor(self):
-        return {
-        }
-
-    @property
-    def hass_switch(self):
-        return {
-        }
-
-    @property
-    def hass_select(self):
-        return {
-            'mode': {
-                'icon': 'mdi:menu',
-                'options': list(self.modes.values()),
-                'state_attrs': self.mode_attrs,
-                'async_select': self.select_mode,
-            },
-            'action': {
-                'icon': 'mdi:play-box',
-                'options': list(self.actions.values()),
-                'async_select': self.select_action,
-                'delay_update': 5,
-            },
-        }
-
-
-class ScooperDevice(Device):
-    logs: list
-    coordinator_logs = None
-
-    async def async_init(self):
-        await super().async_init()
-        self.logs = []
-        self.coordinator_logs = DataUpdateCoordinator(
-            self.account.hass,
-            _LOGGER,
-            name=f'{DOMAIN}-{self.id}-logs',
-            update_method=self.update_logs,
-            update_interval=datetime.timedelta(minutes=1),
-        )
-        await self.coordinator_logs.async_config_entry_first_refresh()
-
-    @property
-    def hass_sensor(self):
-        return {
-            'state': {
-                'icon': 'mdi:information',
-                'state_attrs': self.state_attrs,
-            },
-            'temperature': {
-                'icon': 'mdi:temperature-celsius',
-                'state': self.temperature,
-                'device_class': SensorDeviceClass.TEMPERATURE,
-                'unit': UnitOfTemperature.CELSIUS,
-                "state_class": SensorStateClass.MEASUREMENT
-            },
-            'humidity': {
-                'icon': 'mdi:water-percent',
-                'state': self.humidity,
-                'device_class': SensorDeviceClass.HUMIDITY,
-                "state_class": SensorStateClass.MEASUREMENT
-            },
-            'error': {
-                'icon': 'mdi:alert-circle',
-                'state_attrs': self.error_attrs,
-            },
-            'last_log': {
-                'icon': 'mdi:message',
-                'state_attrs': self.last_log_attrs,
-            },
-        }
-
-    @property
-    def temperature(self):
-        return self.detail.get('temperature')
-
-    @property
-    def humidity(self):
-        return self.detail.get('humidity')
-
-    @property
-    def modes(self):
-        return {
-            '00': 'auto',
-            '01': 'manual',
-            '02': 'time',
-            '03': 'empty',
-        }
-
-    @property
-    def actions(self):
-        return {
-            '00': 'pause',
-            '01': 'start',
-        }
-
-    @property
-    def _last_log(self):
-        log = {}
-        if self.logs:
-            log = self.logs[0] or {}
-        return log
-
-    @property
-    def last_log(self):
-        log = self._last_log
-        if not log:
-            return None
-        return f"{log.get('time')} {log.get('event')}"
-
-    def last_log_attrs(self):
-        log = self._last_log
-        return {
-            **log,
-            'logs': self.logs,
-        }
-
-    async def update_logs(self):
-        api = 'token/device/scooper/stats/log/top5'
-        pms = {
-            'deviceId': self.id,
-        }
-        rsp = None
-        try:
-            rsp = await self.account.request(api, pms)
-            rdt = rsp.get('data', {}).get('scooperLogTop5') or []
-        except (TypeError, ValueError) as exc:
-            rdt = {}
-            _LOGGER.error('Got device logs for %s failed: %s', self.name, exc)
-        if not rdt:
-            _LOGGER.warning('Got device logs for %s failed: %s', self.name, rsp)
-        _LOGGER.info('Update device logs: %s', rsp)
-        self.logs = rdt
-        self._handle_listeners()
-        return rdt
-
 
 class FeederDevice(Device):
-    data: dict
-
-    def __init__(self, dat: dict, coordinator: DevicesCoordinator):
-        self.coordinator = coordinator
-        self.account = coordinator.account
-        self.listeners = {}
-        self.update_data(dat)
-        self.detail = {}
-
     logs: list
     coordinator_logs = None
-
-    async def async_init(self):
-        await self.update_device_detail()
-        self.logs = []
-        self.coordinator_logs = DataUpdateCoordinator(
-            self.account.hass,
-            _LOGGER,
-            name=f'{DOMAIN}-{self.id}-logs',
-            update_method=self.update_logs,
-            update_interval=datetime.timedelta(minutes=1),
-        )
-        await self.coordinator_logs.async_config_entry_first_refresh()
-
-    def update_data(self, dat: dict):
-        self.data = dat
-        self._handle_listeners()
-        _LOGGER.info('Update device data: %s', dat)
-
-    def _handle_listeners(self):
-        for fun in self.listeners.values():
-            fun()
 
     @property
     def id(self):
@@ -692,7 +442,13 @@ class FeederDevice(Device):
 
     @property
     def error(self):
-        return self.detail.get('currentMessage') or self.data.get('currentErrorMessage', '')
+        return self.detail.get('error')
+
+    def error_attrs(self):
+        return {
+            'currentErrorMessage': self.detail.get('currentErrorMessage'),
+            'currentErrorType': self.detail.get('currentErrorType'),
+        }
 
     async def update_device_detail(self):
         api = 'token/device/feeder/detail'
@@ -725,10 +481,6 @@ class FeederDevice(Device):
             'breath_light_status': self.detail.get('breathLightStatus'),
             'power_supply_status': self.detail.get('powerSupplyStatus'),
             'key_lock_status': self.detail.get('keyLockStatus'),
-        }
-
-    def error_attrs(self):
-        return {
         }
 
     @property
@@ -794,7 +546,7 @@ class FeederDevice(Device):
                 'state_attrs': self.state_attrs,
             },
             'weight': {
-                'icon': 'mdi:temperature-celsius',
+                'icon': 'mdi:weight-gram',
                 'state': self.weight,
                 'device_class': SensorDeviceClass.WEIGHT,
                 'unit': UnitOfMass.GRAMS,
@@ -811,22 +563,234 @@ class FeederDevice(Device):
         }
 
     @property
-    def hass_binary_sensor(self):
-        return {
-        }
-
-    @property
-    def hass_switch(self):
+    def hass_button(self):
         return {
             'feed': {
                 'icon': 'mdi:food',
-                'async_turn_on': self.food_out,
+                'async_press': self.food_out,
             }
+        }
+
+
+class ScooperDevice(Device):
+    logs: list
+    coordinator_logs = None
+
+    async def update_device_detail(self):
+        api = 'token/device/info'
+        pms = {
+            'deviceId': self.id,
+        }
+        rsp = None
+        try:
+            rsp = await self.account.request(api, pms)
+            rdt = rsp.get('data', {}).get('deviceInfo') or {}
+        except (TypeError, ValueError) as exc:
+            rdt = {}
+            _LOGGER.error('Got device detail for %s failed: %s', self.name, exc)
+        if not rdt:
+            _LOGGER.warning('Got device detail for %s failed: %s', self.name, rsp)
+        _LOGGER.info('Update device detail: %s', rsp)
+        self.detail = rdt
+        self._handle_listeners()
+        return rdt
+
+    @property
+    def state(self):
+        sta = self.detail.get('workStatus', '')
+        dic = {
+            '00': 'idle',
+            '01': 'running',
+            '02': 'need_reset',
+        }
+        return dic.get(f'{sta}'.strip(), sta)
+
+    def state_attrs(self):
+        return {
+            'work_status': self.detail.get('workStatus'),
+            'alarm_status': self.detail.get('alarmStatus'),
+            'atmosphere_status': self.detail.get('atmosphereStatus'),
+            'weight': self.detail.get('weight'),
+            'key_lock': self.detail.get('keyLock'),
+            'safe_time': self.detail.get('safeTime'),
+            'pave_second': self.detail.get('catLitterPaveSecond'),
+        }
+
+    @property
+    def temperature(self):
+        return self.detail.get('temperature')
+
+    @property
+    def humidity(self):
+        return self.detail.get('humidity')
+
+    @property
+    def mode(self):
+        return self.modes.get(self.detail.get('workModel', ''))
+
+    def mode_attrs(self):
+        return {
+            'work_mode': self.detail.get('workModel'),
+        }
+
+    @property
+    def modes(self):
+        return {
+            '00': 'auto',
+            '01': 'manual',
+            '02': 'time',
+            '03': 'empty',
+        }
+
+    @property
+    def action(self):
+        return None
+
+    @property
+    def actions(self):
+        return {
+            '00': 'pause',
+            '01': 'start',
+        }
+
+    @property
+    def _last_log(self):
+        log = {}
+        if self.logs:
+            log = self.logs[0] or {}
+        return log
+
+    @property
+    def last_log(self):
+        log = self._last_log
+        if not log:
+            return None
+        return f"{log.get('time')} {log.get('event')}"
+
+    def last_log_attrs(self):
+        log = self._last_log
+        return {
+            **log,
+            'logs': self.logs,
+        }
+
+    @property
+    def error(self):
+        return self.detail.get('currentMessage')
+
+    def error_attrs(self):
+        return {}
+
+    async def update_logs(self):
+        api = 'token/device/scooper/stats/log/top5'
+        pms = {
+            'deviceId': self.id,
+        }
+        rsp = None
+        try:
+            rsp = await self.account.request(api, pms)
+            rdt = rsp.get('data', {}).get('scooperLogTop5') or []
+        except (TypeError, ValueError) as exc:
+            rdt = {}
+            _LOGGER.error('Got device logs for %s failed: %s', self.name, exc)
+        if not rdt:
+            _LOGGER.warning('Got device logs for %s failed: %s', self.name, rsp)
+        _LOGGER.info('Update device logs: %s', rsp)
+        self.logs = rdt
+        self._handle_listeners()
+        return rdt
+
+    async def select_mode(self, mode, **kwargs):
+        api = 'token/device/changeMode'
+        mod = None
+        for k, v in self.modes.items():
+            if v == mode:
+                mod = k
+                break
+        if mod is None:
+            _LOGGER.warning('Select mode failed for %s in %s', mode, self.modes)
+            return False
+        pms = {
+            'workModel': mod,
+            'deviceId': self.id,
+        }
+        rdt = await self.account.request(api, pms, 'POST')
+        eno = rdt.get('returnCode', 0)
+        if eno:
+            _LOGGER.error('Select mode failed: %s', [rdt, pms])
+            return False
+        await self.update_device_detail()
+        _LOGGER.info('Select mode: %s', [rdt, pms])
+        return rdt
+
+    async def select_action(self, action, **kwargs):
+        api = 'token/device/actionCmd'
+        val = None
+        for k, v in self.actions.items():
+            if v == action:
+                val = k
+                break
+        if val is None:
+            _LOGGER.warning('Select action failed for %s in %s', action, self.actions)
+            return False
+        pms = {
+            'cmd': val,
+            'deviceId': self.id,
+        }
+        rdt = await self.account.request(api, pms, 'POST')
+        eno = rdt.get('returnCode', 0)
+        if eno:
+            _LOGGER.error('Select action failed: %s', [rdt, pms])
+            return False
+        await self.update_device_detail()
+        _LOGGER.info('Select action: %s', [rdt, pms])
+        return rdt
+
+    @property
+    def hass_sensor(self):
+        return {
+            'state': {
+                'icon': 'mdi:information',
+                'state_attrs': self.state_attrs,
+            },
+            'temperature': {
+                'icon': 'mdi:temperature-celsius',
+                'state': self.temperature,
+                'device_class': SensorDeviceClass.TEMPERATURE,
+                'unit': UnitOfTemperature.CELSIUS,
+                "state_class": SensorStateClass.MEASUREMENT
+            },
+            'humidity': {
+                'icon': 'mdi:water-percent',
+                'state': self.humidity,
+                'device_class': SensorDeviceClass.HUMIDITY,
+                "state_class": SensorStateClass.MEASUREMENT
+            },
+            'error': {
+                'icon': 'mdi:alert-circle',
+                'state_attrs': self.error_attrs,
+            },
+            'last_log': {
+                'icon': 'mdi:message',
+                'state_attrs': self.last_log_attrs,
+            },
         }
 
     @property
     def hass_select(self):
         return {
+            'mode': {
+                'icon': 'mdi:menu',
+                'options': list(self.modes.values()),
+                'state_attrs': self.mode_attrs,
+                'async_select': self.select_mode,
+            },
+            'action': {
+                'icon': 'mdi:play-box',
+                'options': list(self.actions.values()),
+                'async_select': self.select_action,
+                'delay_update': 5,
+            },
         }
 
 
