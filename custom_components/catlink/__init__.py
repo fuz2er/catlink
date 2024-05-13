@@ -13,8 +13,9 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 from homeassistant.components import persistent_notification
+from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.const import CONF_TOKEN, CONF_DEVICES, STATE_ON, STATE_OFF, CONF_PASSWORD, CONF_SCAN_INTERVAL, \
-    CONF_LANGUAGE
+    CONF_LANGUAGE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import aiohttp_client
 from homeassistant.helpers.entity_component import EntityComponent
@@ -414,8 +415,6 @@ class Device:
             'work_status': self.detail.get('workStatus'),
             'alarm_status': self.detail.get('alarmStatus'),
             'atmosphere_status': self.detail.get('atmosphereStatus'),
-            'temperature': self.detail.get('temperature'),
-            'humidity': self.detail.get('humidity'),
             'weight': self.detail.get('weight'),
             'key_lock': self.detail.get('keyLock'),
             'safe_time': self.detail.get('safeTime'),
@@ -495,19 +494,6 @@ class Device:
         return rdt
 
     @property
-    def hass_sensor(self):
-        return {
-            'state': {
-                'icon': 'mdi:information',
-                'state_attrs': self.state_attrs,
-            },
-            'error': {
-                'icon': 'mdi:alert-circle',
-                'state_attrs': self.error_attrs,
-            },
-        }
-
-    @property
     def hass_binary_sensor(self):
         return {
         }
@@ -550,6 +536,44 @@ class ScooperDevice(Device):
             update_interval=datetime.timedelta(minutes=1),
         )
         await self.coordinator_logs.async_config_entry_first_refresh()
+
+    @property
+    def hass_sensor(self):
+        return {
+            'state': {
+                'icon': 'mdi:information',
+                'state_attrs': self.state_attrs,
+            },
+            'temperature': {
+                'icon': 'mdi:temperature-celsius',
+                'state': self.temperature,
+                'device_class': SensorDeviceClass.TEMPERATURE,
+                'unit': UnitOfTemperature.CELSIUS,
+                "state_class": SensorStateClass.MEASUREMENT
+            },
+            'humidity': {
+                'icon': 'mdi:water-percent',
+                'state': self.humidity,
+                'device_class': SensorDeviceClass.HUMIDITY,
+                "state_class": SensorStateClass.MEASUREMENT
+            },
+            'error': {
+                'icon': 'mdi:alert-circle',
+                'state_attrs': self.error_attrs,
+            },
+            'last_log': {
+                'icon': 'mdi:message',
+                'state_attrs': self.last_log_attrs,
+            },
+        }
+
+    @property
+    def temperature(self):
+        return self.detail.get('temperature')
+
+    @property
+    def humidity(self):
+        return self.detail.get('humidity')
 
     @property
     def modes(self):
@@ -606,16 +630,6 @@ class ScooperDevice(Device):
         self.logs = rdt
         self._handle_listeners()
         return rdt
-
-    @property
-    def hass_sensor(self):
-        return {
-            **super().hass_sensor,
-            'last_log': {
-                'icon': 'mdi:message',
-                'state_attrs': self.last_log_attrs,
-            },
-        }
 
 
 class FeederDevice(Device):
@@ -808,28 +822,52 @@ class FeederDevice(Device):
 
 
 class CatlinkEntity(CoordinatorEntity):
-    def __init__(self, name, device: Device, option=None):
+    def __init__(self, entity_key: str, device: Device, option=None):
         self.coordinator = device.coordinator
         CoordinatorEntity.__init__(self, self.coordinator)
         self.account = self.coordinator.account
-        self._name = name
+        self._entity_key = entity_key
         self._device = device
+        self._device_id = device.id
         self._option = option or {}
-        self._attr_name = f'{device.name} {name}'.strip()
-        self._attr_device_id = f'{device.type}_{device.mac}'
-        self._attr_unique_id = f'{self._attr_device_id}-{name}'
+        self._device_name = f'{device.type}_{device.mac}'
+        self._unique_id = f'{self._device_id}-{entity_key}'
         mac = device.mac[-4:] if device.mac else device.id
-        self.entity_id = f'{DOMAIN}.{device.type.lower()}_{mac}_{name}'
-        self._attr_icon = self._option.get('icon')
-        self._attr_device_class = self._option.get('class')
-        self._attr_unit_of_measurement = self._option.get('unit')
-        self._attr_device_info = {
-            'identifiers': {(DOMAIN, self._attr_device_id)},
-            'name': device.name,
-            'model': device.model,
+        self.entity_id = f'{DOMAIN}.{device.type.lower()}_{mac}_{entity_key}'
+
+    @property
+    def name(self):
+        return f'{self._device.name} {self._entity_key}'.strip()
+
+    @property
+    def device_info(self):
+        return {
+            'identifiers': {(DOMAIN, self._device_id)},
+            'name': self._device.name,
+            'model': self._device.model,
             'manufacturer': 'CatLink',
-            'sw_version': device.detail.get('firmwareVersion'),
+            'sw_version': self._device.detail.get('firmwareVersion'),
         }
+
+    @property
+    def unique_id(self):
+        return self._unique_id
+
+    @property
+    def icon(self):
+        return self._option.get("icon")
+
+    @property
+    def device_class(self):
+        return self._option.get("device_class")
+
+    @property
+    def state_class(self):
+        return self._option.get("state_class")
+
+    @property
+    def native_unit_of_measurement(self):
+        return self._option.get("unit")
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
@@ -841,9 +879,9 @@ class CatlinkEntity(CoordinatorEntity):
         self.async_write_ha_state()
 
     def update(self):
-        if hasattr(self._device, self._name):
-            self._attr_state = getattr(self._device, self._name)
-            _LOGGER.debug('Entity update: %s', [self.entity_id, self._name, self._attr_state])
+        if hasattr(self._device, self._entity_key):
+            self._attr_state = getattr(self._device, self._entity_key)
+            _LOGGER.debug('Entity update: %s', [self.entity_id, self._entity_key, self._attr_state])
 
         fun = self._option.get('state_attrs')
         if callable(fun):
@@ -867,14 +905,14 @@ class CatlinkEntity(CoordinatorEntity):
 
 
 class CatlinkBinaryEntity(CatlinkEntity):
-    def __init__(self, name, device: Device, option=None):
-        super().__init__(name, device, option)
+    def __init__(self, entity_key, device: Device, option=None):
+        super().__init__(entity_key, device, option)
         self._attr_is_on = False
 
     def update(self):
         super().update()
-        if hasattr(self._device, self._name):
-            self._attr_is_on = not not getattr(self._device, self._name)
+        if hasattr(self._device, self._entity_key):
+            self._attr_is_on = not not getattr(self._device, self._entity_key)
         else:
             self._attr_is_on = False
 

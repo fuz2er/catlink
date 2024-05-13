@@ -31,8 +31,8 @@ async def async_setup_platform(hass: HomeAssistant, config, async_add_entities, 
 
 
 class CatlinkSelectEntity(CatlinkEntity, SelectEntity):
-    def __init__(self, name, device: Device, option=None):
-        super().__init__(name, device, option)
+    def __init__(self, entity_key, device: Device, option=None):
+        super().__init__(entity_key, device, option)
         self._attr_current_option = None
         self._attr_options = self._option.get('options')
 
@@ -46,7 +46,7 @@ class CatlinkSelectEntity(CatlinkEntity, SelectEntity):
         fun = self._option.get('async_select')
         if callable(fun):
             kws = {
-                'entity': self,
+                # 'entity': self,
             }
             ret = await fun(option, **kws)
         if ret:
