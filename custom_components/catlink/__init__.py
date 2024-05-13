@@ -15,7 +15,7 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from homeassistant.components import persistent_notification
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.const import CONF_TOKEN, CONF_DEVICES, STATE_ON, STATE_OFF, CONF_PASSWORD, CONF_SCAN_INTERVAL, \
-    CONF_LANGUAGE, UnitOfTemperature
+    CONF_LANGUAGE, UnitOfTemperature, UnitOfMass
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import aiohttp_client
 from homeassistant.helpers.entity_component import EntityComponent
@@ -687,6 +687,10 @@ class FeederDevice(Device):
         return self.data.get('deviceName', '')
 
     @property
+    def weight(self):
+        return self.detail.get('weight')
+
+    @property
     def error(self):
         return self.detail.get('currentMessage') or self.data.get('currentErrorMessage', '')
 
@@ -720,13 +724,11 @@ class FeederDevice(Device):
             'indicator_light_status': self.detail.get('indicatorLightStatus'),
             'breath_light_status': self.detail.get('breathLightStatus'),
             'power_supply_status': self.detail.get('powerSupplyStatus'),
-            'weight': self.detail.get('weight'),
             'key_lock_status': self.detail.get('keyLockStatus'),
         }
 
     def error_attrs(self):
         return {
-            'weight': self.detail.get('weight'),
         }
 
     @property
@@ -790,6 +792,13 @@ class FeederDevice(Device):
             'state': {
                 'icon': 'mdi:information',
                 'state_attrs': self.state_attrs,
+            },
+            'weight': {
+                'icon': 'mdi:temperature-celsius',
+                'state': self.weight,
+                'device_class': SensorDeviceClass.WEIGHT,
+                'unit': UnitOfMass.GRAMS,
+                "state_class": SensorStateClass.MEASUREMENT
             },
             'error': {
                 'icon': 'mdi:alert-circle',
