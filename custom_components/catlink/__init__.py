@@ -29,7 +29,7 @@ from homeassistant.components.switch import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_TOKEN, CONF_DEVICES, STATE_ON, STATE_OFF, CONF_PASSWORD, CONF_SCAN_INTERVAL, \
-    CONF_LANGUAGE, UnitOfTemperature, UnitOfMass
+    CONF_LANGUAGE, UnitOfTemperature, UnitOfMass, PERCENTAGE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import aiohttp_client
 from homeassistant.helpers import device_registry as dr
@@ -178,8 +178,11 @@ class Account:
         else:
             kws['data'] = pms
         try:
+            _LOGGER.warning("Send request %s %s, Params:%s", method, url, pms)
             req = await self.http.request(method, url, **kws)
-            return await req.json() or {}
+            resp = await req.json() or {}
+            _LOGGER.warning("Send request %s %s, Response:%s", method, url, resp)
+            return resp
         except (ClientConnectorError, TimeoutError) as exc:
             _LOGGER.error('Request api failed: %s', [method, url, pms, exc])
         return {}
@@ -234,7 +237,7 @@ class Account:
         eno = rsp.get('returnCode', 0)
         if eno == 1002:  # Illegal token
             if await self.async_login():
-                rsp = await self.request(api)
+                rsp = await self.request(api, {'type': 'NONE'})
         dls = rsp.get('data', {}).get(CONF_DEVICES) or []
         if not dls:
             _LOGGER.warning('Got devices for %s failed: %s', self.phone, rsp)
@@ -723,6 +726,7 @@ class ScooperDevice(Device):
                 'icon': 'mdi:water-percent',
                 'state': self.humidity,
                 'device_class': SensorDeviceClass.HUMIDITY,
+                'unit': PERCENTAGE,
                 "state_class": SensorStateClass.MEASUREMENT
             },
             'error': {
