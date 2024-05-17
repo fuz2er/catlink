@@ -457,7 +457,7 @@ class FeederDevice(Device):
         log = self._last_log
         if not log:
             return None
-        return f"{log.get('time')} {log.get('event')}"
+        return f"{log.get('time')} {log.get('event')} {log.get('firstSection')} {log.get('secondSection')}".strip()
 
     def last_log_attrs(self):
         log = self._last_log
@@ -631,7 +631,7 @@ class ScooperDevice(Device):
         log = self._last_log
         if not log:
             return None
-        return f"{log.get('time')} {log.get('event')}"
+        return f"{log.get('time')} {log.get('event')} {log.get('firstSection')} {log.get('secondSection')}".strip()
 
     def last_log_attrs(self):
         log = self._last_log
@@ -642,10 +642,15 @@ class ScooperDevice(Device):
 
     @property
     def error(self):
-        return self.detail.get('currentMessage')
+        current_message = self.detail.get('currentMessage')
+        if '' == current_message:
+            current_message = 'NORMAL'
+        return current_message
 
     def error_attrs(self):
-        return {}
+        return {
+
+        }
 
     async def update_logs(self):
         api = 'token/device/scooper/stats/log/top5'
