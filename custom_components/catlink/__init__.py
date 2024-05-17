@@ -178,10 +178,10 @@ class Account:
         else:
             kws['data'] = pms
         try:
-            _LOGGER.warning("Send request %s %s, Params:%s", method, url, pms)
+            _LOGGER.debug("Send request %s %s, Params:%s", method, url, pms)
             req = await self.http.request(method, url, **kws)
             resp = await req.json() or {}
-            _LOGGER.warning("Send request %s %s, Response:%s", method, url, resp)
+            _LOGGER.debug("Send request %s %s, Response:%s", method, url, resp)
             return resp
         except (ClientConnectorError, TimeoutError) as exc:
             _LOGGER.error('Request api failed: %s', [method, url, pms, exc])
@@ -587,6 +587,10 @@ class ScooperDevice(Device):
         return self.detail.get('humidity')
 
     @property
+    def catLitterWeight(self):
+        return self.detail.get('catLitterWeight')
+
+    @property
     def mode(self):
         return self.modes.get(self.detail.get('workModel', ''))
 
@@ -726,6 +730,12 @@ class ScooperDevice(Device):
                 'icon': 'mdi:water-percent',
                 'state': self.humidity,
                 'device_class': SensorDeviceClass.HUMIDITY,
+                'unit': PERCENTAGE,
+                "state_class": SensorStateClass.MEASUREMENT
+            },
+            'catLitterWeight': {
+                'icon': 'mdi:home-percent-outline',
+                'state': self.catLitterWeight,
                 'unit': PERCENTAGE,
                 "state_class": SensorStateClass.MEASUREMENT
             },
