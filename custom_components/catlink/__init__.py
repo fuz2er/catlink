@@ -28,7 +28,7 @@ from homeassistant.components.switch import (
     DOMAIN as SWITCH_DOMAIN,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_TOKEN, CONF_DEVICES, STATE_ON, STATE_OFF, CONF_PASSWORD, CONF_SCAN_INTERVAL, \
+from homeassistant.const import CONF_TOKEN, CONF_DEVICES, CONF_PASSWORD, CONF_SCAN_INTERVAL, \
     CONF_LANGUAGE, UnitOfTemperature, UnitOfMass, PERCENTAGE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import aiohttp_client
@@ -784,20 +784,17 @@ class CatlinkEntity(CoordinatorEntity):
         self._device_id = device.id
         self._device_name = device.name
 
-        self._option = option or {}
-
         self._unique_id = f'{self._device_id}-{entity_key}'
         mac = device.mac[-4:] if device.mac else device.id
         self.entity_id = f'{DOMAIN}.{device.type.lower()}_{mac}_{entity_key}'
 
-    @property
-    def name(self):
-        return f'{self._device.name} {self._entity_key}'.strip()
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return the device info."""
-        return DeviceInfo(
+        self._option = option or {}
+        self._attr_unit_of_measurement = option.get("unit")
+        self._attr_native_unit_of_measurement = option.get("unit")
+        self._attr_state_class = option.get("state_class")
+        self._attr_device_class = option.get("device_class")
+        self._attr_icon = option.get("icon")
+        self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, self._device_id)},
             name=self._device.name,
             model=self._device.model,
@@ -806,24 +803,12 @@ class CatlinkEntity(CoordinatorEntity):
         )
 
     @property
+    def name(self):
+        return f'{self._device.name} {self._entity_key}'.strip()
+
+    @property
     def unique_id(self):
         return self._unique_id
-
-    @property
-    def icon(self):
-        return self._option.get("icon")
-
-    @property
-    def device_class(self):
-        return self._option.get("device_class")
-
-    @property
-    def state_class(self):
-        return self._option.get("state_class")
-
-    @property
-    def native_unit_of_measurement(self):
-        return self._option.get("unit")
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
@@ -842,10 +827,6 @@ class CatlinkEntity(CoordinatorEntity):
         fun = self._option.get('state_attrs')
         if callable(fun):
             self._attr_extra_state_attributes = fun()
-
-    @property
-    def state(self):
-        return self._attr_state
 
     async def async_request_api(self, api, params=None, method='GET', **kwargs):
         throw = kwargs.pop('throw', None)
@@ -871,7 +852,3 @@ class CatlinkBinaryEntity(CatlinkEntity):
             self._attr_is_on = not not getattr(self._device, self._entity_key)
         else:
             self._attr_is_on = False
-
-    @property
-    def state(self):
-        return STATE_ON if self._attr_is_on else STATE_OFF
