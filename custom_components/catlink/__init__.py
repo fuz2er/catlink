@@ -518,10 +518,12 @@ class FeederDevice(Device):
             },
             'error': {
                 'icon': 'mdi:alert-circle',
+                'state': self.error,
                 'state_attrs': self.error_attrs,
             },
             'last_log': {
                 'icon': 'mdi:message',
+                'state': self.last_log,
                 'state_attrs': self.last_log_attrs,
             },
         }
@@ -748,10 +750,12 @@ class ScooperDevice(Device):
             },
             'error': {
                 'icon': 'mdi:alert-circle',
+                'state': self.error,
                 'state_attrs': self.error_attrs,
             },
             'last_log': {
                 'icon': 'mdi:message',
+                'state': self.last_log,
                 'state_attrs': self.last_log_attrs,
             },
         }
@@ -847,7 +851,6 @@ class CatlinkBinaryEntity(CatlinkEntity):
         self._attr_is_on = False
 
     def update(self):
-        super().update()
         if hasattr(self._device, self._entity_key):
             self._attr_is_on = not not getattr(self._device, self._entity_key)
         else:
