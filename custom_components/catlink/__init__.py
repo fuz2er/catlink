@@ -232,6 +232,8 @@ class Account:
         return old
 
     async def get_devices(self):
+        if not self.token:
+            await self.async_login()
         api = 'token/device/union/list/sorted'
         rsp = await self.request(api, {'type': 'NONE'})
         eno = rsp.get('returnCode', 0)
