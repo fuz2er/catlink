@@ -25,7 +25,7 @@ class CatlinkConfigFlow(ConfigFlow, domain=DOMAIN):
         """Handle the initial step."""
         if user_input is not None:
             return self.async_create_entry(
-                title="CatLink",
+                title="CatLink:" + user_input.get(CONF_PHONE_IAC) + user_input.get(CONF_PHONE),
                 data=user_input,
             )
 
@@ -52,12 +52,12 @@ class OptionsFlowHandler(OptionsFlow):
             self, user_input: dict[str, Any] | None = None):
         """Manage the options."""
         if user_input is not None:
-            opt = {}
+            data = {}
             for k, v in user_input.items():
-                if k not in [CONF_PHONE, CONF_PHONE_IAC, CONF_PASSWORD]:
-                    opt[k] = v
+                if k in [CONF_PHONE, CONF_PHONE_IAC, CONF_PASSWORD, CONF_API_BASE, CONF_LANGUAGE]:
+                    data[k] = v
             self.hass.config_entries.async_update_entry(
-                self.config_entry, options=opt
+                self.config_entry, data=data
             )
             return self.async_create_entry(title="", data={})
 
@@ -75,9 +75,4 @@ class OptionsFlowHandler(OptionsFlow):
                     #     cv.time_period_str),
                 }
             ),
-            description_placeholders={
-                CONF_PHONE_IAC: "Phone IAC (read-only)",
-                CONF_PHONE: "Phone number (read-only)",
-                CONF_PASSWORD: "Password (read-only)"
-            }
         )
