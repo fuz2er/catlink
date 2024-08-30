@@ -52,8 +52,12 @@ class OptionsFlowHandler(OptionsFlow):
             self, user_input: dict[str, Any] | None = None):
         """Manage the options."""
         if user_input is not None:
+            opt = {}
+            for k, v in user_input.items():
+                if k not in [CONF_PHONE, CONF_PHONE_IAC, CONF_PASSWORD]:
+                    opt[k] = v
             self.hass.config_entries.async_update_entry(
-                self.config_entry, options=user_input
+                self.config_entry, options=opt
             )
             return self.async_create_entry(title="", data={})
 
@@ -62,13 +66,18 @@ class OptionsFlowHandler(OptionsFlow):
             step_id="init",
             data_schema=vol.Schema(
                 {
-                    vol.Optional(CONF_API_BASE, default=user_input.get(CONF_API_BASE, DEFAULT_API_BASE)): str,
-                    vol.Required(CONF_PHONE, default=user_input.get(CONF_PHONE, "")): str,
                     vol.Required(CONF_PHONE_IAC, default=user_input.get(CONF_PHONE_IAC, '86')): str,
+                    vol.Required(CONF_PHONE, default=user_input.get(CONF_PHONE, "")): str,
                     vol.Required(CONF_PASSWORD, default=user_input.get(CONF_PASSWORD, "")): str,
+                    vol.Optional(CONF_API_BASE, default=user_input.get(CONF_API_BASE, DEFAULT_API_BASE)): str,
                     vol.Optional(CONF_LANGUAGE, default=user_input.get(CONF_LANGUAGE, 'zh_CN')): str,
                     # vol.Optional(CONF_SCAN_INTERVAL, default=options.get(CONF_SCAN_INTERVAL, '00:01:00')): vol.All(
                     #     cv.time_period_str),
                 }
             ),
+            description_placeholders={
+                CONF_PHONE_IAC: "Phone IAC (read-only)",
+                CONF_PHONE: "Phone number (read-only)",
+                CONF_PASSWORD: "Password (read-only)"
+            }
         )
