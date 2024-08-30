@@ -1,7 +1,5 @@
-import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from homeassistant import config_entries
-from homeassistant.const import CONF_SCAN_INTERVAL
 from homeassistant.core import callback
 
 from .const import DOMAIN, CONF_API_BASE, CONF_PHONE, CONF_PHONE_IAC, CONF_PASSWORD, CONF_LANGUAGE, DEFAULT_API_BASE
@@ -13,7 +11,7 @@ ACCOUNT_SCHEMA = vol.Schema(
         vol.Required(CONF_PHONE_IAC, default='86'): str,
         vol.Required(CONF_PASSWORD): str,
         vol.Optional(CONF_LANGUAGE, default='zh_CN'): str,
-        vol.Optional(CONF_SCAN_INTERVAL, default='00:01:00'): vol.All(cv.time_period_str),
+        # vol.Optional(CONF_SCAN_INTERVAL, default='00:01:00'): vol.All(cv.time_period_str),
     }
 )
 
@@ -66,8 +64,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     vol.Required(CONF_PHONE_IAC, default=options.get(CONF_PHONE_IAC, '86')): str,
                     vol.Required(CONF_PASSWORD, default=options.get(CONF_PASSWORD, "")): str,
                     vol.Optional(CONF_LANGUAGE, default=options.get(CONF_LANGUAGE, 'zh_CN')): str,
-                    vol.Optional(CONF_SCAN_INTERVAL, default=options.get(CONF_SCAN_INTERVAL, '00:01:00')): vol.All(
-                        cv.time_period_str),
+                    # vol.Optional(CONF_SCAN_INTERVAL, default=options.get(CONF_SCAN_INTERVAL, '00:01:00')): vol.All(
+                    #     cv.time_period_str),
                 }
             ),
         )
