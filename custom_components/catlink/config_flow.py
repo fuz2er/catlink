@@ -48,7 +48,7 @@ class OptionsFlowHandler(OptionsFlow):
         """Initialize options flow."""
         self.config_entry = config_entry
 
-    async def async_step_user(
+    async def async_step_init(
             self, user_input: dict[str, Any] | None = None):
         """Manage the options."""
         if user_input is not None:
@@ -57,16 +57,16 @@ class OptionsFlowHandler(OptionsFlow):
             )
             return self.async_create_entry(title="", data={})
 
-        options = self.config_entry.options
+        user_input = {**self.config_entry.data, **self.config_entry.options}
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema(
                 {
-                    vol.Optional(CONF_API_BASE, default=options.get(CONF_API_BASE, DEFAULT_API_BASE)): str,
-                    vol.Required(CONF_PHONE, default=options.get(CONF_PHONE, "")): str,
-                    vol.Required(CONF_PHONE_IAC, default=options.get(CONF_PHONE_IAC, '86')): str,
-                    vol.Required(CONF_PASSWORD, default=options.get(CONF_PASSWORD, "")): str,
-                    vol.Optional(CONF_LANGUAGE, default=options.get(CONF_LANGUAGE, 'zh_CN')): str,
+                    vol.Optional(CONF_API_BASE, default=user_input.get(CONF_API_BASE, DEFAULT_API_BASE)): str,
+                    vol.Required(CONF_PHONE, default=user_input.get(CONF_PHONE, "")): str,
+                    vol.Required(CONF_PHONE_IAC, default=user_input.get(CONF_PHONE_IAC, '86')): str,
+                    vol.Required(CONF_PASSWORD, default=user_input.get(CONF_PASSWORD, "")): str,
+                    vol.Optional(CONF_LANGUAGE, default=user_input.get(CONF_LANGUAGE, 'zh_CN')): str,
                     # vol.Optional(CONF_SCAN_INTERVAL, default=options.get(CONF_SCAN_INTERVAL, '00:01:00')): vol.All(
                     #     cv.time_period_str),
                 }
