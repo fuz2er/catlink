@@ -1,15 +1,12 @@
-[tool.poetry]
+[project]
 name = "catlink"
 version = "0.1.0"
 description = ""
-authors = ["Fuz2er <17903971+fuz2er@users.noreply.github.com>"]
+authors = [{ name = "Fuz2er", email = "17903971+fuz2er@users.noreply.github.com" }]
+requires-python = ">=3.13.2,<3.14"
 readme = "README.md"
-
-[tool.poetry.dependencies]
-python = ">=3.12,<3.13"
-homeassistant = "^2024.5.3"
-
+dependencies = ["homeassistant>=2025.8.3,<2025.11.0"]
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
