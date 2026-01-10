@@ -350,10 +350,16 @@ class Device:
         self.listeners = {}
         self.update_data(dat)
         self.detail = {}
+        self.logs = []
+        self._logs_inited = False
 
     async def async_init(self):
+        if self._logs_inited:
+            return
+        self._logs_inited = True
+
         await self.update_device_detail()
-        self.logs = []
+
         self.coordinator_logs = DataUpdateCoordinator(
             self.account.hass,
             _LOGGER,
@@ -361,7 +367,9 @@ class Device:
             update_method=self.update_logs,
             update_interval=datetime.timedelta(minutes=1),
         )
-        await self.coordinator_logs.async_config_entry_first_refresh()
+
+        # 运行期用 async_refresh，不要用 async_config_entry_first_refresh
+        await self.coordinator_logs.async_refresh()
 
     async def update_device_detail(self):
         pass
