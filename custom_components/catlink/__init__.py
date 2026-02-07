@@ -40,6 +40,7 @@ from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
     DataUpdateCoordinator,
 )
+from homeassistant.util import slugify
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -804,7 +805,7 @@ class CatlinkEntity(CoordinatorEntity):
         self._device_name = device.name
 
         self._unique_id = f'{self._device_id}-{entity_key}'
-        mac = device.mac[-4:] if device.mac else device.id
+        mac = slugify(device.mac[-4:] if device.mac else device.id)
         self.entity_id = f'{DOMAIN}.{device.type.lower()}_{mac}_{entity_key}'
 
         self._option = option or {}

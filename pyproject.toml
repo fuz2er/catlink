@@ -5,7 +5,9 @@ description = ""
 authors = [{ name = "Fuz2er", email = "17903971+fuz2er@users.noreply.github.com" }]
 requires-python = ">=3.13.2,<3.14"
 readme = "README.md"
-dependencies = ["homeassistant>=2025.8.3,<2025.11.0"]
+dependencies = [
+    "homeassistant>=2025.8.3,<=2026.2.0",
+]
 
 [build-system]
 requires = ["hatchling"]
